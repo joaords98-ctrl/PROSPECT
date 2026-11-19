@@ -22,6 +22,9 @@ create table if not exists public.leads (
   atualizado_em timestamptz default now()
 );
 
+create index if not exists idx_leads_status on public.leads(status);
+create index if not exists idx_leads_tem_site on public.leads(tem_site);
+create index if not exists idx_leads_servico on public.leads(servico_alvo);
 
 -- Tabela opcional para editar seus textos de abordagem pelo banco
 create table if not exists public.modelos_mensagem (

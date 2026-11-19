@@ -2,14 +2,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
-
-function getSupabaseClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key);
-}
 
 type Lead = {
   id: string;
@@ -50,7 +42,9 @@ export default function ProspeccaoPage() {
   const [servico, setServico] = useState("geral");
   const [apenasSemSite, setApenasSemSite] = useState(false);
   const [buscando, setBuscando] = useState(false);
+  const [carregando, setCarregando] = useState(true);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [modoVisao, setModoVisao] = useState<"lista" | "cards">("lista");
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [filtroStatus, setFiltroStatus] = useState<string>("todos");
@@ -59,16 +53,19 @@ export default function ProspeccaoPage() {
   const [mensagemCustom, setMensagemCustom] = useState(MENSAGENS_PADRAO.geral);
 
   async function carregarLeads() {
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-    const { data, error } = await supabase
-      .from("leads")
-      .select("*")
-      .order("criado_em", { ascending: false })
-      .limit(200);
-
-    if (!error && data) {
-      setLeads(data as Lead[]);
+    setCarregando(true);
+    try {
+      const res = await fetch("/api/leads", { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok) {
+        setAviso(`Erro ao carregar lista: ${json.error || "Falha no Supabase"}`);
+      } else {
+        setLeads(json.leads || []);
+      }
+    } catch {
+      setAviso("Erro de conexão ao carregar leads.");
+    } finally {
+      setCarregando(false);
     }
   }
 
@@ -107,12 +104,11 @@ export default function ProspeccaoPage() {
 
   async function atualizarStatus(id: string, novoStatus: Lead["status"]) {
     setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, status: novoStatus } : l)));
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-    await supabase
-      .from("leads")
-      .update({ status: novoStatus, atualizado_em: new Date().toISOString() })
-      .eq("id", id);
+    await fetch("/api/leads", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, status: novoStatus }),
+    });
   }
 
   function montarLinkWhatsApp(lead: Lead) {
@@ -139,7 +135,7 @@ export default function ProspeccaoPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8">
-      <div className="max-w-5xl mx-auto space-y-6">
+      <div className="max-w-6xl mx-auto space-y-6">
         <header className="flex flex-col gap-1">
           <h1 className="text-2xl font-bold tracking-tight">Prospecção Curitiba</h1>
           <p className="text-sm text-slate-400">
@@ -251,85 +247,196 @@ export default function ProspeccaoPage() {
               <option value="fechado">Fechado</option>
             </select>
           </div>
-          <span className="text-xs text-slate-400">{leadsFiltrados.length} leads exibidos</span>
+
+          <div className="flex items-center gap-3">
+            <div className="inline-flex rounded-lg border border-slate-800 bg-slate-900 p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setModoVisao("lista")}
+                className={`px-2.5 py-1 rounded-md transition ${
+                  modoVisao === "lista" ? "bg-slate-700 text-white" : "text-slate-400"
+                }`}
+              >
+                Lista
+              </button>
+              <button
+                type="button"
+                onClick={() => setModoVisao("cards")}
+                className={`px-2.5 py-1 rounded-md transition ${
+                  modoVisao === "cards" ? "bg-slate-700 text-white" : "text-slate-400"
+                }`}
+              >
+                Cards
+              </button>
+            </div>
+            <span className="text-xs text-slate-400">
+              {carregando ? "Carregando..." : `${leadsFiltrados.length} leads exibidos`}
+            </span>
+          </div>
         </section>
 
-        {/* Cards de Leads (ideal para celular e desktop) */}
-        <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {leadsFiltrados.map((lead) => {
-            const waLink = montarLinkWhatsApp(lead);
-            return (
-              <div
-                key={lead.id}
-                className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-3"
-              >
-                <div className="space-y-1.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <h2 className="font-semibold text-base leading-snug">{lead.nome}</h2>
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${
-                        lead.tem_site
-                          ? "bg-sky-950 text-sky-300 border border-sky-800"
-                          : "bg-amber-950 text-amber-300 border border-amber-800"
-                      }`}
-                    >
-                      {lead.tem_site ? "Tem Site" : "Sem Site"}
-                    </span>
+        {/* Visualização em Lista (Tabela) */}
+        {modoVisao === "lista" ? (
+          <section className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-950/60 text-xs uppercase text-slate-400 border-b border-slate-800">
+                <tr>
+                  <th className="px-4 py-3">Empresa</th>
+                  <th className="px-4 py-3">Telefone / WhatsApp</th>
+                  <th className="px-4 py-3">Site</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3 text-right">Ação</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {leadsFiltrados.map((lead) => {
+                  const waLink = montarLinkWhatsApp(lead);
+                  return (
+                    <tr key={lead.id} className="hover:bg-slate-800/40">
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-slate-100">{lead.nome}</div>
+                        <div className="text-xs text-slate-400">
+                          {lead.categoria || "Empresa"} {lead.nota ? `• ★ ${lead.nota}` : ""}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div>{lead.telefone || "Sem telefone"}</div>
+                        {lead.eh_celular && (
+                          <span className="text-xs text-emerald-400">Celular/WhatsApp</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {lead.tem_site && lead.site_url ? (
+                          <a
+                            href={lead.site_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-block text-xs px-2 py-0.5 rounded-full bg-sky-950 text-sky-300 border border-sky-800 hover:underline"
+                          >
+                            Ver Site
+                          </a>
+                        ) : (
+                          <span className="inline-block text-xs px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800">
+                            Sem Site
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <select
+                          value={lead.status}
+                          onChange={(e) =>
+                            atualizarStatus(lead.id, e.target.value as Lead["status"])
+                          }
+                          className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs"
+                        >
+                          <option value="pendente">Pendente</option>
+                          <option value="enviado">Enviado</option>
+                          <option value="respondeu">Respondeu</option>
+                          <option value="fechado">Fechado</option>
+                          <option value="descartado">Descartado</option>
+                        </select>
+                      </td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        {waLink ? (
+                          <a
+                            href={waLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={() => atualizarStatus(lead.id, "enviado")}
+                            className="inline-block bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition"
+                          >
+                            Enviar WhatsApp
+                          </a>
+                        ) : (
+                          <span className="text-xs text-slate-500">Sem WhatsApp</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </section>
+        ) : (
+          /* Visualização em Cards */
+          <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {leadsFiltrados.map((lead) => {
+              const waLink = montarLinkWhatsApp(lead);
+              return (
+                <div
+                  key={lead.id}
+                  className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-3"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <h2 className="font-semibold text-base leading-snug">{lead.nome}</h2>
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${
+                          lead.tem_site
+                            ? "bg-sky-950 text-sky-300 border border-sky-800"
+                            : "bg-amber-950 text-amber-300 border border-amber-800"
+                        }`}
+                      >
+                        {lead.tem_site ? "Tem Site" : "Sem Site"}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-slate-400">
+                      {lead.categoria || "Empresa"} • {lead.nota ? `★ ${lead.nota}` : "Sem nota"}
+                    </p>
+                    <p className="text-xs text-slate-400">{lead.endereco}</p>
+                    <p className="text-sm text-slate-200">
+                      {lead.telefone || "Sem telefone"}{" "}
+                      {lead.eh_celular && (
+                        <span className="text-xs text-emerald-400">(Celular/WhatsApp)</span>
+                      )}
+                    </p>
+                    {lead.site_url && (
+                      <a
+                        href={lead.site_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block text-xs text-sky-400 truncate hover:underline"
+                      >
+                        {lead.site_url}
+                      </a>
+                    )}
                   </div>
 
-                  <p className="text-xs text-slate-400">
-                    {lead.categoria || "Empresa"} • {lead.nota ? `★ ${lead.nota}` : "Sem nota"}
-                  </p>
-                  <p className="text-xs text-slate-400">{lead.endereco}</p>
-                  <p className="text-sm text-slate-200">
-                    {lead.telefone || "Sem telefone"}{" "}
-                    {lead.eh_celular && (
-                      <span className="text-xs text-emerald-400">(Celular/WhatsApp)</span>
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800">
+                    <select
+                      value={lead.status}
+                      onChange={(e) =>
+                        atualizarStatus(lead.id, e.target.value as Lead["status"])
+                      }
+                      className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs"
+                    >
+                      <option value="pendente">Pendente</option>
+                      <option value="enviado">Enviado</option>
+                      <option value="respondeu">Respondeu</option>
+                      <option value="fechado">Fechado</option>
+                      <option value="descartado">Descartado</option>
+                    </select>
+
+                    {waLink ? (
+                      <a
+                        href={waLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={() => atualizarStatus(lead.id, "enviado")}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium px-3 py-2 rounded-lg transition"
+                      >
+                        Enviar WhatsApp
+                      </a>
+                    ) : (
+                      <span className="text-xs text-slate-500">Sem WhatsApp</span>
                     )}
-                  </p>
-                  {lead.site_url && (
-                    <a
-                      href={lead.site_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block text-xs text-sky-400 truncate hover:underline"
-                    >
-                      {lead.site_url}
-                    </a>
-                  )}
+                  </div>
                 </div>
-
-                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800">
-                  <select
-                    value={lead.status}
-                    onChange={(e) => atualizarStatus(lead.id, e.target.value as Lead["status"])}
-                    className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs"
-                  >
-                    <option value="pendente">Pendente</option>
-                    <option value="enviado">Enviado</option>
-                    <option value="respondeu">Respondeu</option>
-                    <option value="fechado">Fechado</option>
-                    <option value="descartado">Descartado</option>
-                  </select>
-
-                  {waLink ? (
-                    <a
-                      href={waLink}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={() => atualizarStatus(lead.id, "enviado")}
-                      className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium px-3 py-2 rounded-lg transition"
-                    >
-                      Enviar WhatsApp
-                    </a>
-                  ) : (
-                    <span className="text-xs text-slate-500">Sem WhatsApp</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </section>
+              );
+            })}
+          </section>
+        )}
       </div>
     </main>
   );
