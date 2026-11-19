@@ -179,6 +179,48 @@ export default function ProspeccaoPage() {
     return `https://wa.me/${lead.whatsapp_numero}?text=${encodeURIComponent(texto)}`;
   }
 
+  function baixarListaCSV() {
+    if (leadsFiltrados.length === 0) return;
+    const cabecalho = [
+      "Nome",
+      "Categoria",
+      "Telefone",
+      "Celular",
+      "Status Site",
+      "Site",
+      "Endereço",
+      "Nota",
+      "Status",
+      "Link WhatsApp",
+      "Link Maps",
+    ];
+    const escapar = (v: string | number | null | undefined) =>
+      `"${String(v ?? "").replace(/"/g, "\"\"")}"`;
+
+    const linhas = leadsFiltrados.map((l) => [
+      escapar(l.nome),
+      escapar(l.categoria),
+      escapar(l.telefone),
+      escapar(l.eh_celular ? "Sim" : "Não"),
+      escapar(l.tem_site ? "Tem Site" : "Sem Site"),
+      escapar(l.site_url),
+      escapar(l.endereco),
+      escapar(l.nota),
+      escapar(l.status),
+      escapar(montarLinkWhatsApp(l) || ""),
+      escapar(l.maps_url),
+    ].join(";"));
+
+    const conteudo = "\uFEFF" + [cabecalho.join(";"), ...linhas].join("\n");
+    const blob = new Blob([conteudo], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `leads_curitiba_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   const leadsFiltrados = useMemo(() => {
     return leads.filter((l) => {
       if (filtroStatus !== "todos" && l.status !== filtroStatus) return false;
@@ -375,6 +417,14 @@ export default function ProspeccaoPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={baixarListaCSV}
+              disabled={leadsFiltrados.length === 0}
+              className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-100 border border-slate-700 transition"
+            >
+              Baixar CSV (Excel)
+            </button>
             <div className="inline-flex rounded-lg border border-slate-800 bg-slate-900 p-0.5 text-xs">
               <button
                 type="button"
