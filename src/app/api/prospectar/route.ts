@@ -1,7 +1,14 @@
+// Salve este arquivo em: src/app/api/prospectar/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
+
+// Retângulo geográfico cobrindo Curitiba e Região Metropolitana (PR)
+const CURITIBA_RMC_RECTANGLE = {
+  low: { latitude: -25.78, longitude: -49.62 },
+  high: { latitude: -25.18, longitude: -48.98 },
+};
 
 function normalizarTelefoneBR(telefone?: string) {
   if (!telefone) return { digitos: "", ehCelular: false };
@@ -16,6 +23,18 @@ function normalizarTelefoneBR(telefone?: string) {
     semDDI.length === 10 || semDDI.length === 11 ? `55${semDDI}` : apenasDigitos;
 
   return { digitos: whatsappNumero, ehCelular };
+}
+
+function pertenceAoParana(endereco?: string) {
+  if (!endereco) return true;
+  const upper = endereco.toUpperCase();
+  return (
+    upper.includes("- PR") ||
+    upper.includes(", PR") ||
+    upper.includes("PARANÁ") ||
+    upper.includes("PARANA") ||
+    upper.includes("CURITIBA")
+  );
 }
 
 export async function POST(req: NextRequest) {
@@ -71,6 +90,9 @@ export async function POST(req: NextRequest) {
         languageCode: "pt-BR",
         regionCode: "BR",
         pageSize: 20,
+        locationRestriction: {
+          rectangle: CURITIBA_RMC_RECTANGLE,
+        },
       };
       if (pageToken) body.pageToken = pageToken;
 
@@ -101,6 +123,7 @@ export async function POST(req: NextRequest) {
     }
 
     const registros = todosLugares
+      .filter((p) => pertenceAoParana(p.formattedAddress))
       .filter((p) => (apenasSemSite ? !p.websiteUri : true))
       .map((p) => {
         const telefone = p.nationalPhoneNumber || p.internationalPhoneNumber || "";
