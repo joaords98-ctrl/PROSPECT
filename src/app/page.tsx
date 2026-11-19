@@ -91,6 +91,7 @@ export default function ProspeccaoPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [filtroStatus, setFiltroStatus] = useState<string>("todos");
   const [filtroSite, setFiltroSite] = useState<string>("todos");
+  const [filtroRegiao, setFiltroRegiao] = useState<string>("todas");
   const [textoFiltro, setTextoFiltro] = useState("");
   const [mensagemCustom, setMensagemCustom] = useState(MENSAGENS_PADRAO.fotografia);
 
@@ -153,6 +154,13 @@ export default function ProspeccaoPage() {
         totalAcumulado += Number(json.totalSalvos || 0);
       }
 
+      if (alvos.length === 1 && alvos[0] !== "Curitiba") {
+        setFiltroRegiao(alvos[0]);
+      } else if (alvos.length > 1) {
+        setFiltroRegiao("selecionadas");
+      } else {
+        setFiltroRegiao("todas");
+      }
       setAviso(
         `Busca concluída em ${alvos.length} região(ões): ${totalAcumulado} leads processados/atualizados no Supabase.`
       );
@@ -222,10 +230,22 @@ export default function ProspeccaoPage() {
   }
 
   const leadsFiltrados = useMemo(() => {
+    const correspondeRegiao = (lead: Lead, regiao: string) => {
+      const termo = regiao.split(",")[0].trim().toLowerCase();
+      const end = (lead.endereco || "").toLowerCase();
+      const nichoStr = (lead.nicho_busca || "").toLowerCase();
+      return end.includes(termo) || nichoStr.includes(termo);
+    };
+
     return leads.filter((l) => {
       if (filtroStatus !== "todos" && l.status !== filtroStatus) return false;
       if (filtroSite === "sem_site" && l.tem_site) return false;
       if (filtroSite === "com_site" && !l.tem_site) return false;
+      if (filtroRegiao === "selecionadas" && regioesSelecionadas.length > 0) {
+        if (!regioesSelecionadas.some((r) => correspondeRegiao(l, r))) return false;
+      } else if (filtroRegiao !== "todas" && filtroRegiao !== "selecionadas") {
+        if (!correspondeRegiao(l, filtroRegiao)) return false;
+      }
       if (
         textoFiltro &&
         !l.nome.toLowerCase().includes(textoFiltro.toLowerCase()) &&
@@ -236,7 +256,7 @@ export default function ProspeccaoPage() {
       }
       return true;
     });
-  }, [leads, filtroStatus, filtroSite, textoFiltro]);
+  }, [leads, filtroStatus, filtroSite, filtroRegiao, regioesSelecionadas, textoFiltro]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8">
@@ -394,6 +414,19 @@ export default function ProspeccaoPage() {
               placeholder="Filtrar por nome, bairro ou nicho..."
               className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-sm"
             />
+            <select
+              value={filtroRegiao}
+              onChange={(e) => setFiltroRegiao(e.target.value)}
+              className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-sm"
+            >
+              <option value="todas">Região: Todas</option>
+              <option value="selecionadas">Somente regiões marcadas</option>
+              {REGIOES_CURITIBA_RMC.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
             <select
               value={filtroSite}
               onChange={(e) => setFiltroSite(e.target.value)}
